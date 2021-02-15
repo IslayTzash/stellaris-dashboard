@@ -12,7 +12,7 @@ import threading
 
 import click
 
-from stellarisdashboard import config
+from stellarisdashboard import config, datamodel
 
 from stellarisdashboard.dashboard_app import visualization_data
 from stellarisdashboard.parsing import save_parser, timeline
@@ -67,7 +67,9 @@ def f_monitor_saves(save_path=None, stop_event: threading.Event = None):
     if stop_event is None:
         stop_event = threading.Event()
     polling_interval = config.CONFIG.polling_interval
-    save_reader = save_parser.ContinuousSavePathMonitor(save_path)
+    save_reader = save_parser.ContinuousSavePathMonitor(
+        save_path, datamodel.get_all_imported_saves()
+    )
     save_reader.mark_all_existing_saves_processed()
     tle = timeline.TimelineExtractor()
 
@@ -86,6 +88,7 @@ def f_monitor_saves(save_path=None, stop_event: threading.Event = None):
             show_wait_message = True
             nothing_new = False
             tle.process_gamestate(game_name, gamestate_dict)
+            save_reader.update_existing_games(game_name, gamestate_dict)
             visualization_data.get_current_execution_plot_data(game_name)
             del gamestate_dict
         if nothing_new:
@@ -117,7 +120,7 @@ def f_parse_saves(threads=None, save_path=None, game_name_prefix="") -> None:
     if save_path is None:
         save_path = config.CONFIG.save_file_path
     save_reader = save_parser.BatchSavePathMonitor(
-        save_path, game_name_prefix=game_name_prefix,
+        save_path, datamodel.get_all_imported_saves(), game_name_prefix=game_name_prefix
     )
     tle = timeline.TimelineExtractor()
     for (
@@ -127,6 +130,7 @@ def f_parse_saves(threads=None, save_path=None, game_name_prefix="") -> None:
         if gamestate_dict is None:
             continue
         tle.process_gamestate(game_name, gamestate_dict)
+        save_reader.update_existing_games(game_name, gamestate_dict)
         del gamestate_dict
 
 

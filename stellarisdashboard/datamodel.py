@@ -345,6 +345,16 @@ def get_available_games_dict() -> Dict[str, Dict[str, str]]:
     return games
 
 
+def get_all_imported_saves() -> Dict[str, List[str]]:
+    """ Returns a list of all imported games (file stems + dates)."""
+    games = {}
+    for game_id in get_known_games():
+        games[game_id] = []
+        for gs in get_gamestates_since(game_id, 0.0):
+            games[game_id].append(days_to_date(gs.date))
+    return games
+
+
 def count_gamestates_since(game_name: str, date: float) -> int:
     with get_db_session(game_name) as session:
         return session.query(GameState).filter(GameState.date > date).count()

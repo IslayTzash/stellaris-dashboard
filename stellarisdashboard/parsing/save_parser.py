@@ -7,6 +7,7 @@ import logging
 import multiprocessing as mp
 import os
 import pathlib
+import re
 import signal
 import sys
 import time
@@ -36,9 +37,10 @@ try:
     from stellarisdashboard.parsing.cython_ext import tokenizer
 
 except ImportError as import_error:
-    logger.warning(
-        f'Cython extensions not available, using slow parser. Error message: "{import_error}"'
-    )
+    if config.is_main_process():
+        logger.warning(
+            f'Cython extensions not available, using slow parser. Error message: "{import_error}"'
+        )
     from stellarisdashboard.parsing import tokenizer_re as tokenizer
 
 FilePosition = namedtuple("FilePosition", "line col")
@@ -58,12 +60,13 @@ class SavePathMonitor(abc.ABC):
     get_new_game_states method.
     """
 
-    def __init__(self, save_parent_dir, game_name_prefix: str = ""):
+    def __init__(self, save_parent_dir, snapshots_in_db = None, game_name_prefix: str = ""):
         self.processed_saves: Set[pathlib.Path] = set()
         self.num_encountered_saves: int = 0
         self.save_parent_dir = pathlib.Path(save_parent_dir)
         self.game_name_prefix = game_name_prefix
         self._last_checked_time = float("-inf")
+        self.snapshots_in_db = snapshots_in_db
 
     @abc.abstractmethod
     def get_gamestates_and_check_for_new_files(
@@ -83,6 +86,16 @@ class SavePathMonitor(abc.ABC):
         new_files = self._apply_filename_filter(new_files)
         new_files = self._apply_skip_savefiles_filter(new_files)
         return new_files
+
+    def update_existing_games(self, stem, gamestate):
+        """When new files are parsed, update our understanding of games in the DB.  Mainly to stop collision between cloud and local saves."""
+        if self.snapshots_in_db is None:
+            self.snapshots_in_db = dict()
+        if stem not in self.snapshots_in_db:
+            self.snapshots_in_db[stem] = []
+        date = gamestate["date"]
+        if date not in self.snapshots_in_db[stem]:
+            self.snapshots_in_db[stem].append(date)
 
     @staticmethod
     def _apply_filename_filter(new_files: List[pathlib.Path]) -> List[pathlib.Path]:
@@ -151,8 +164,8 @@ class ContinuousSavePathMonitor(SavePathMonitor):
     (unlikely during most normal gameplay if 2-3 threads are allowed)
     """
 
-    def __init__(self, save_parent_dir, game_name_prefix: str = ""):
-        super().__init__(save_parent_dir, game_name_prefix)
+    def __init__(self, save_parent_dir, snapshots_in_db = None, game_name_prefix: str = ""):
+        super().__init__(save_parent_dir, snapshots_in_db, game_name_prefix)
         self._num_threads = config.CONFIG.threads
         self._pool = mp.Pool(
             processes=config.CONFIG.threads, initializer=_pool_worker_init
@@ -171,9 +184,12 @@ class ContinuousSavePathMonitor(SavePathMonitor):
                 logger.info(
                     f"Parsed save file {fname} in {time.time() - submit_time} seconds."
                 )
-                logger.info(f"Retrieving gamestate for {fname}")
                 try:
-                    yield fname.parent.stem, result.get()
+                    gamestate = result.get()
+                    if gamestate is None:
+                        logger.info("Skipping import of game that is already up to date in DB")
+                    yield fname.parent.stem, gamestate
+
                 except KeyboardInterrupt:
                     raise
                 except Exception:
@@ -187,7 +203,7 @@ class ContinuousSavePathMonitor(SavePathMonitor):
         for fname in new_files:
             if len(self._pending_results) >= config.CONFIG.threads:
                 break  # Ignore if there are any additional files
-            result = self._pool.apply_async(parse_save, args=(fname,))
+            result = self._pool.apply_async(parse_save, args=(fname,self.snapshots_in_db))
             submit_time = time.time()
             self._pending_results.append((fname, result, submit_time))
 
@@ -228,7 +244,7 @@ class BatchSavePathMonitor(SavePathMonitor):
                     max_workers=config.CONFIG.threads
                 ) as executor:
                     futures = [
-                        executor.submit(parse_save, save_file)
+                        executor.submit(parse_save, save_file, self.snapshots_in_db)
                         for save_file in chunk_files
                     ]
                     for i, (game_id, future) in enumerate(zip(chunk_game_ids, futures)):
@@ -250,7 +266,7 @@ class BatchSavePathMonitor(SavePathMonitor):
         else:
             for save_file in new_files:
                 try:
-                    yield save_file.parent.stem, parse_save(save_file)
+                    yield save_file.parent.stem, parse_save(save_file, self.snapshots_in_db)
                 except StellarisFileFormatError as e:
                     logger.error(f"Skipping unparseable save file {save_file}:")
                     logger.error(traceback.format_exc())
@@ -271,16 +287,21 @@ class BatchSavePathMonitor(SavePathMonitor):
             yield chunk
 
 
-def parse_save(filename) -> Dict[str, Any]:
+def parse_save(filename: pathlib.Path, snapshots_in_db) -> Dict[str, Any]:
     """
     Parse a single save file.
 
     :param filename: Path to a .sav file
+    :param snapshots_in_db: List of all game snapshots alread imported into DB
     :return: The gamestate dictionary
     """
     gamestate = None
-    parser = SaveFileParser()
+    parser = SaveFileParser(snapshots_in_db)
     max_attempts = 3
+    delay_seconds = config.CONFIG.read_delay
+    if os.path.getmtime(filename) + delay_seconds > time.time():
+        logger.info(f'Waiting {delay_seconds} for newly created file to finish saving.')
+        time.sleep(delay_seconds)
     for attempt in range(max_attempts):
         try:
             gamestate = parser.parse_save(filename)
@@ -291,7 +312,6 @@ def parse_save(filename) -> Dict[str, Any]:
             remaining = max_attempts - attempt - 1
             if not remaining:
                 raise
-            delay_seconds = 0.5
             logger.info(
                 f"Encountered BadZipFile error {e}. Next attempt in {delay_seconds} seconds, {remaining} attempts remaining."
             )
@@ -351,15 +371,14 @@ def token_stream(gamestate, tokenizer=tokenizer.tokenizer):
 
 
 class SaveFileParser:
-    def __init__(self):
-        self.gamestate_dict = None
-        self.save_filename = None
+    def __init__(self, snapshots_in_db = None):
         self._token_stream = None
         self._lookahead_token = None
         self._dot_count = 0
         self.should_print_dots = config.CONFIG.show_progress_dots
+        self.snapshots_in_db = snapshots_in_db
 
-    def parse_save(self, filename):
+    def parse_save(self, filename: pathlib.Path):
         """
         Parse a single save file to a gamestate dictionary.
 
@@ -382,19 +401,33 @@ class SaveFileParser:
 
         :return: A dictionary representing the gamestate of the savefile.
         """
-        self.save_filename = filename
-        logger.info(f"Parsing Save File {self.save_filename}...")
-        with zipfile.ZipFile(self.save_filename) as save_zip:
-            gamestate = save_zip.read("gamestate").decode()
-        self.parse_from_string(gamestate)
-        return self.gamestate_dict
+        logger.info(f"Parsing Save File {filename}...")
+        with zipfile.ZipFile(filename) as save_zip:
+            gamestate_str = save_zip.read("gamestate").decode()
+        if self.already_in_db(filename, gamestate_str):
+            return None
+        return self.parse_from_string(gamestate_str)
 
     def parse_from_string(self, s: str):
         self._token_stream = token_stream(s)
-        self.gamestate_dict = self._parse_key_value_pair_list(self._next_token())
+        gamestate_dict = self._parse_key_value_pair_list(self._next_token())
         if self.should_print_dots:
             print("")  # cleanup line for all the dots we've been printing
-        return self.gamestate_dict
+        return gamestate_dict
+
+    def already_in_db(self, filename: pathlib.Path, gamestate_str: str):
+        """Helper to skip parsing if the file already exists in our database"""
+        stem = filename.parent.stem
+        if self.snapshots_in_db and stem in self.snapshots_in_db:
+            m = re.search(r'^\s*date="([0-9.]+)"', gamestate_str, re.MULTILINE)
+            if m:
+                date = m.group(1)
+                if date in self.snapshots_in_db[stem]:
+                    logger.info(
+                        f'{stem} {date} Already in DB, file parsing skipped.'
+                    )
+                    return True
+        return False
 
     def _parse_key_value_pair(self):
         key_token = self._lookahead()

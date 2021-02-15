@@ -20,17 +20,25 @@ CONFIG = None
 logger = None
 
 
+def is_main_process():
+    """Returns true if we are not called from a subprocess.  Used to suppress some duplicate log spam."""
+    return mp.current_process().name == "MainProcess"
+
+
 def initialize_logger():
     # Add a stream handler for stdout output
     root_logger = logging.getLogger()
     root_logger.setLevel(logging.INFO)
     stdout_ch = logging.StreamHandler(sys.stdout)
-    stdout_ch.setLevel(logging.INFO)
+    # Don't set handler level, use logger's filter level
     stdout_ch.setFormatter(LOG_FORMAT)
     root_logger.addHandler(stdout_ch)
-    if mp.current_process().name != "MainProcess":
-        root_logger.setLevel(logging.ERROR)
-        stdout_ch.setLevel(logging.ERROR)
+
+    global logger
+    logger = logging.getLogger(__name__)
+    if not is_main_process():
+        # Skip the giant log blob sent when the subprocess re-reads the configuration
+        logger.setLevel(logging.ERROR)
 
 
 def _get_default_thread_count():
@@ -141,6 +149,7 @@ DEFAULT_SETTINGS = dict(
     threads=_get_default_thread_count(),
     port=28053,
     polling_interval=0.5,
+    read_delay=1.5,
     check_version=True,
     log_level="INFO",
     show_everything=False,
@@ -151,6 +160,7 @@ DEFAULT_SETTINGS = dict(
     read_all_countries=False,
     skip_saves=0,
     log_to_file=False,
+    log_webservice_requests=True,
     plot_width=1150,
     plot_height=640,
     tab_layout=DEFAULT_TAB_LAYOUT,
@@ -172,6 +182,7 @@ class Config:
     plot_width: int = None
 
     polling_interval: float = None
+    read_delay: float = None  # delay in seconds after a new file is detected or a retry reading a zipfile
 
     check_version: bool = None
     filter_events_by_type: bool = None
@@ -184,6 +195,7 @@ class Config:
     plot_time_resolution: int = None
 
     log_to_file: bool = False
+    log_webservice_requests: bool = True
     debug_mode: bool = False
     continue_on_parse_error: bool = True
     show_progress_dots: bool = True
@@ -201,6 +213,9 @@ class Config:
         "read_all_countries",
         "show_all_country_types",
         "log_to_file",
+        "log_webservice_requests",
+        "continue_on_parse_error",
+        "show_progress_dots",
     }
     INT_KEYS = {
         "port",
@@ -212,6 +227,7 @@ class Config:
     }
     FLOAT_KEYS = {
         "polling_interval",
+        "read_delay",
     }
     STR_KEYS = {
         "mp_username",
@@ -355,9 +371,7 @@ def initialize():
     global CONFIG
     if CONFIG is not None:
         return
-    global logger
     initialize_logger()
-    logger = logging.getLogger(__name__)
     CONFIG = Config()
     _apply_existing_settings(CONFIG)
 
@@ -370,12 +384,14 @@ def initialize():
 
 
 def configure_logger():
-    global logger
-    logger.setLevel(LOG_LEVELS.get(CONFIG.log_level, logging.INFO))
+    logging.getLogger().setLevel(LOG_LEVELS.get(CONFIG.log_level, logging.INFO))
+
+    if not CONFIG.log_webservice_requests:
+        logging.getLogger('werkzeug').setLevel(logging.ERROR)
+
     if CONFIG.log_to_file:
         logger = logging.getLogger()
         file_ch = logging.FileHandler(CONFIG.base_output_path / "log.txt")
-        file_ch.setLevel(logging.WARN)
         file_ch.setFormatter(LOG_FORMAT)
         logger.addHandler(file_ch)
 
