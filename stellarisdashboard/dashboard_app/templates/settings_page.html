@@ -24,11 +24,14 @@
             </span>
         </div>
         {% endfor %}
+        <div class="setting">
+            <span class="settingname"></span>
+            <span class="settinginput">        
+                <input type="submit" class="button" value="Apply Settings" style="margin-bottom: 10px" />
+                <input type="reset" class="button" value="Reset Values"/>
+            </span>
+        </div>
     </div>
 
-    <div class="settingsbuttons">
-        <input type="submit" class="button" value="Apply Settings"/>
-        <input type="reset" class="button" value="Reset Values"/>
-    </div>
 </form>
 {% endblock %}

@@ -16,6 +16,7 @@ from stellarisdashboard.dashboard_app import (
     game_index,
     graph_ledger,
     settings,
+    style_css
 )
 
 

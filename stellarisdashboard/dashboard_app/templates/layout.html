@@ -1,6 +1,6 @@
 <!doctype html>
 <title>Stellaris Dashboard</title>
-<link rel=stylesheet type=text/css href="{{ url_for('static', filename='style.css') }}">
+<link rel=stylesheet type=text/css href="/style.css">
 <div class=page>
     <div class=metanav>
         <a name="index"></a>
@@ -16,7 +16,6 @@
         </p>
         {%endif%}
         {% block body %}{% endblock %}
-        <a class="button" href="/">Game Selection</a>
     </div>
 </div>
 

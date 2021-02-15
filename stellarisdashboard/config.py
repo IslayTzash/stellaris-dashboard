@@ -202,6 +202,30 @@ class Config:
 
     tab_layout: Dict[str, List[str]] = None
 
+    web_plotly_template: str = "plotly_dark"
+    if False:  # Close to the original stellaris-dashboard theme
+        web_background: str = "rgba(33,43,39,1)"
+        web_background_dark: str = "rgba(20,25,25,1)"
+        web_text_color: str = "rgba(217,217,217,1)"
+        web_highlight: str = "rgba(195, 133, 33, 1)"
+        web_button_text_color: str = web_text_color
+    elif True:  # Dark Theme
+        # Monotone greys moderate = 33 | light = 38 | dark = 26
+        web_background: str = "rgba(33,33,33,1)"  # moderate gray
+        web_background_dark: str = "rgba(38,38,38,1)" # Lighter gray than background
+        web_text_color: str = "rgba(217,217,217,1)"
+        # web_highlight: str = "rgba(231, 109, 59, 1)"   # orange
+        # web_highlight: str = "rgba(132, 181, 71, 1)"   # green
+        web_button_text_color: str = web_text_color
+        web_highlight: str = "rgba(44, 151, 222, 1)"   # blue
+    else:  # Light Theme
+        web_plotly_template: str = "plotly_white"
+        web_background_dark: str = "rgba(255,255,255,1)"  # moderate gray
+        web_background: str = "rgba(243,243,243,1)" # Lighter gray than background
+        web_text_color: str = "rgba(51,51,51,1)"
+        web_button_text_color: str = web_background_dark
+        web_highlight: str = "rgba(44, 151, 222, 1)"   # blue
+
     PATH_KEYS = {
         "base_output_path",
         "save_file_path",

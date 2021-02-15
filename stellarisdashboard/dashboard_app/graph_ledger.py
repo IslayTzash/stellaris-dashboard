@@ -14,61 +14,42 @@ from stellarisdashboard.dashboard_app import utils, flask_app, visualization_dat
 
 logger = logging.getLogger(__name__)
 
-BACKGROUND = "rgba(33,43,39,1)"
-GALAXY_BACKGROUND = "rgba(0,0,0,1)"
-BACKGROUND_DARK = "rgba(20,25,25,1)"
-TEXT_COLOR = "rgba(217,217,217,1)"
-TEXT_HIGHLIGHT_COLOR = "rgba(195, 133, 33, 1)"
+BACKGROUND = config.CONFIG.web_background
+BACKGROUND_DARK = config.CONFIG.web_background_dark
+TEXT_COLOR = config.CONFIG.web_text_color
+HIGHLIGHT_COLOR = config.CONFIG.web_highlight
 DEFAULT_PLOT_LAYOUT = dict(
+    template=config.CONFIG.web_plotly_template,
     xaxis=dict(showgrid=False),
     yaxis=dict(showgrid=False, type="linear"),
-    plot_bgcolor=BACKGROUND_DARK,
     paper_bgcolor=BACKGROUND,
     font={"color": TEXT_COLOR},
     showlegend=True,
 )
-BUTTON_STYLE = {
-    "color": TEXT_HIGHLIGHT_COLOR,
-    "font-family": "verdana",
-    "font-size": "20px",
-    "-webkit-appearance": "button",
-    "-moz-appearance": "button",
-    "appearance": "button",
-    "background-color": BACKGROUND,
-    "display": "inline",
-    "text-decoration": "none",
-    "padding": "0.1cm",
-    "margin": "0.1cm",
-}
-HEADER_STYLE = {
-    "font-family": "verdana",
-    "color": TEXT_COLOR,
-    "margin-top": "20px",
-    "margin-bottom": "10px",
-    "text-align": "center",
-}
 DROPDOWN_STYLE = {
     "width": "100%",
     "font-family": "verdana",
-    "color": TEXT_HIGHLIGHT_COLOR,
-    "margin-top": "10px",
-    "margin-bottom": "10px",
+    "color": TEXT_COLOR,
     "text-align": "center",
-    "text-color": TEXT_HIGHLIGHT_COLOR,
-    "background": BACKGROUND_DARK,
-}
-TEXT_STYLE = {
-    "font-family": "verdana",
-    "color": "rgba(217, 217, 217, 1)",
+    "background-color": BACKGROUND_DARK,
+    "position": "absolute",
+    "top": "0",
+    "left": "50%",
+    "width": "300px",
+    "margin-top": "1px",
+    "margin-bottom": "0px",
+    "margin-left": "-150px",
+    "margin-right": "0px",
 }
 SELECTED_TAB_STYLE = {
     "width": "inherit",
     "boxShadow": "none",
-    "borderLeft": "thin lightgrey solid",
-    "borderRight": "thin lightgrey solid",
-    "borderTop": "2px #0074D9 solid",
+    "borderLeft": "thin %s solid" % (HIGHLIGHT_COLOR),
+    "borderRight": "thin %s solid" % (HIGHLIGHT_COLOR),
+    "borderTop": "2px %s solid" % (HIGHLIGHT_COLOR),
     "background": BACKGROUND,
-    "color": TEXT_HIGHLIGHT_COLOR,
+    "text-color": HIGHLIGHT_COLOR,
+    "padding": "5px 5px",
 }
 TAB_CONTAINER_STYLE = {
     "width": "inherit",
@@ -81,6 +62,7 @@ TAB_STYLE = {
     "boxShadow": "inset 0px -1px 0px 0px lightgrey",
     "background": BACKGROUND_DARK,
     "color": TEXT_COLOR,
+    "padding": "5px 5px",
 }
 SELECT_SYSTEM_DEFAULT = html.P(
     children=[f"Click the map to select a system"],
@@ -94,6 +76,7 @@ timeline_app = dash.Dash(
     server=flask_app,
     compress=False,
     url_base_pathname="/timeline/",
+    external_stylesheets=[ "/style.css" ]
 )
 
 
@@ -538,8 +521,8 @@ def get_galaxy(game_id: str, slider_date: float) -> dcc.Graph:
         height=config.CONFIG.plot_height,
         hovermode="closest",
         clickmode="event",
-        plot_bgcolor=GALAXY_BACKGROUND,
-        paper_bgcolor=BACKGROUND_DARK,
+        template=config.CONFIG.web_plotly_template,
+        paper_bgcolor=BACKGROUND,
         font={"color": TEXT_COLOR},
         title=f"Galaxy Map at {datamodel.days_to_date(slider_date)} (click to select systems)",
     )
@@ -583,26 +566,28 @@ def get_layout():
                                 "Game Selection",
                                 id="index-link",
                                 href="/",
-                                style=BUTTON_STYLE,
+                                className="button",
+                                style={ "margin-right": "0.2cm" },
                             ),
                             html.A(
                                 f"Settings",
                                 id="settings-link",
                                 href="/settings/",
-                                style=BUTTON_STYLE,
+                                className="button",
+                                style={ "margin-right": "0.2cm" },
                             ),
                             html.A(
                                 f"Event Ledger",
                                 id="ledger-link",
                                 href="/history",
-                                style=BUTTON_STYLE,
+                                className="button",
+                                style={ "margin-right": "0.2cm" },
                             ),
                         ]
                     ),
                     html.H1(
                         children="Unknown Game",
                         id="game-name-header",
-                        style=HEADER_STYLE,
                     ),
                     dcc.Checklist(
                         id="dash-plot-checklist",
@@ -615,6 +600,7 @@ def get_layout():
                         value=[],
                         labelStyle=dict(color=TEXT_COLOR),
                         style={"text-align": "center"},
+                        className="topcorner"
                     ),
                     dcc.Dropdown(
                         id="country-perspective-dropdown",
@@ -622,6 +608,7 @@ def get_layout():
                         placeholder="Select a country",
                         value=None,
                         style=DROPDOWN_STYLE,
+                        className="countryDropdown"
                     ),
                     dcc.Tabs(
                         id="tabs-container",
